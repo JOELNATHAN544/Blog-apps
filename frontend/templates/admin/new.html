@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Post - Blog App</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <h1 class="logo">
+                <a href="/" style="text-decoration: none; color: white;">Blog App</a>
+            </h1>
+            <nav class="nav">
+                <a href="/" class="nav-link">Home</a>
+                <div id="auth-section">
+                    <button id="logout-btn" class="btn btn-secondary" onclick="logout()">Logout</button>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="container">
+            <div class="admin-header">
+                <h1>Create New Post</h1>
+                <a href="/" class="btn btn-primary">← Back to Posts</a>
+            </div>
+
+            <div class="admin-content">
+                <form id="new-post-form" hx-post="/admin/new" hx-target="#form-response" hx-swap="outerHTML">
+                    <div class="form-group">
+                        <label for="title">Title</label>
+                        <input type="text" id="title" name="title" required class="form-control" placeholder="Enter post title">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="content">Content (Markdown)</label>
+                        <textarea id="content" name="content" rows="15" required class="form-control" placeholder="Write your post content in Markdown..."></textarea>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" onclick="previewContent()" class="btn btn-secondary">Preview</button>
+                        <button type="submit" class="btn btn-success">Create Post</button>
+                    </div>
+                </form>
+
+                <div id="form-response"></div>
+
+                <div id="preview-container" class="preview-container" style="display: none;">
+                    <div class="preview-header">
+                        <h3>Preview</h3>
+                        <button onclick="closePreview()" class="btn btn-secondary">Close Preview</button>
+                    </div>
+                    <div id="preview-content" class="preview-content"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2024 Blog App. Built with Rust, Keycloak, and modern web technologies.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Global variables
+        let authToken = null;
+
+        // Initialize the app
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuthStatus();
+        });
+
+        // Check authentication status
+        async function checkAuthStatus() {
+            const token = localStorage.getItem('auth_token');
+            const userInfo = localStorage.getItem('user_info');
+            
+            if (token && userInfo) {
+                try {
+                    const user = JSON.parse(userInfo);
+                    authToken = token;
+                    
+                    // Check if user has author role
+                    if (!user.roles || !user.roles.includes('author')) {
+                        alert('You need author permissions to access this page.');
+                        window.location.href = '/';
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Error parsing user info:', error);
+                    clearAuth();
+                }
+            } else {
+                // Check for authorization code in URL
+                const urlParams = new URLSearchParams(window.location.search);
+                const code = urlParams.get('code');
+                const state = urlParams.get('state');
+                
+                if (code && state) {
+                    await handleAuthCallback(code, state);
+                } else {
+                    alert('Please log in to access this page.');
+                    window.location.href = '/';
+                }
+            }
+        }
+
+        // Handle authentication callback
+        async function handleAuthCallback(code, state) {
+            const storedState = localStorage.getItem('auth_state');
+            
+            if (state !== storedState) {
+                console.error('State mismatch');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/test-token');
+                const data = await response.json();
+                
+                if (data.token) {
+                    authToken = data.token;
+                    const currentUser = {
+                        sub: 'test-user',
+                        roles: ['author']
+                    };
+                    
+                    localStorage.setItem('auth_token', authToken);
+                    localStorage.setItem('user_info', JSON.stringify(currentUser));
+                    
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                }
+            } catch (error) {
+                console.error('Error handling auth callback:', error);
+            }
+        }
+
+        // Clear authentication
+        function clearAuth() {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user_info');
+            window.location.href = '/';
+        }
+
+        // Logout function
+        function logout() {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user_info');
+            
+            const keycloakUrl = 'http://localhost:8080/auth/realms/blog-realm/protocol/openid-connect/logout';
+            const clientId = 'blog-client';
+            const redirectUri = encodeURIComponent(window.location.origin);
+            
+            const logoutUrl = `${keycloakUrl}?client_id=${clientId}&redirect_uri=${redirectUri}`;
+            window.location.href = logoutUrl;
+        }
+
+        // Preview content
+        async function previewContent() {
+            const content = document.getElementById('content').value;
+            if (!content.trim()) {
+                alert('Please enter some content to preview.');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/preview', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ content })
+                });
+                
+                const html = await response.text();
+                document.getElementById('preview-content').innerHTML = html;
+                document.getElementById('preview-container').style.display = 'block';
+            } catch (error) {
+                console.error('Error previewing content:', error);
+                alert('Error generating preview. Please try again.');
+            }
+        }
+
+        // Close preview
+        function closePreview() {
+            document.getElementById('preview-container').style.display = 'none';
+        }
+
+        // Handle form submission
+        document.addEventListener('htmx:afterRequest', function(event) {
+            if (event.detail.xhr.status === 200) {
+                const response = JSON.parse(event.detail.xhr.responseText);
+                if (response.success) {
+                    alert('Post created successfully!');
+                    window.location.href = `/posts/${response.slug}`;
+                } else {
+                    alert('Error creating post: ' + response.message);
+                }
+            } else {
+                alert('Error creating post. Please try again.');
+            }
+        });
+    </script>
+</body>
+</html>
