@@ -119,17 +119,8 @@
 
         // Authentication functions
         function login() {
-            // Redirect to Keycloak login through nginx
-            const keycloakUrl = '/auth/realms/blog-realm/protocol/openid-connect/auth';
-            const clientId = 'blog-client';
-            const redirectUri = encodeURIComponent(window.location.origin + '/auth/callback');
-            const state = Math.random().toString(36).substring(7);
-            
-            // Store state for verification
-            localStorage.setItem('auth_state', state);
-            
-            const loginUrl = `${keycloakUrl}?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&state=${state}`;
-            window.location.href = loginUrl;
+            // Redirect to our backend's login endpoint which will handle the OAuth flow
+            window.location.href = '/auth/login';
         }
 
         function logout() {

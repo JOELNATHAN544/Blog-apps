@@ -83,7 +83,7 @@
             const clientId = 'blog-client';
             const redirectUri = encodeURIComponent(window.location.origin + '/auth/callback');
             const state = Math.random().toString(36).substring(7);
-            
+            Redirect
             localStorage.setItem('auth_state', state);
             
             const loginUrl = `${keycloakUrl}?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&state=${state}`;

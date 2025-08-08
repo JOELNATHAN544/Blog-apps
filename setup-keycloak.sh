@@ -46,38 +46,90 @@ curl -s -X POST \
 echo "✅ Realm created"
 
 # Create client
-echo "🔧 Creating blog-backend client..."
-curl -s -X POST \
-    -H "Authorization: Bearer $ADMIN_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{
-        "clientId": "blog-backend",
-        "enabled": true,
-        "publicClient": false,
-        "standardFlowEnabled": true,
-        "directAccessGrantsEnabled": true,
-        "serviceAccountsEnabled": true,
-        "redirectUris": ["http://localhost/*"],
-        "webOrigins": ["http://localhost"]
-    }' \
-    http://localhost:8080/admin/realms/blog-realm/clients
+echo "🔧 Creating blog-client..."
 
-echo "✅ Client created"
-
-# Get client ID
+# First, check if client exists
 CLIENT_ID=$(curl -s \
     -H "Authorization: Bearer $ADMIN_TOKEN" \
     http://localhost:8080/admin/realms/blog-realm/clients | \
-    jq -r '.[] | select(.clientId == "blog-backend") | .id')
+    jq -r '.[] | select(.clientId == "blog-client") | .id')
+
+if [ -z "$CLIENT_ID" ]; then
+    # Client doesn't exist, create it
+    CLIENT_ID=$(curl -s -X POST \
+        -H "Authorization: Bearer $ADMIN_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "clientId": "blog-client",
+            "enabled": true,
+            "publicClient": false,
+            "standardFlowEnabled": true,
+            "directAccessGrantsEnabled": true,
+            "serviceAccountsEnabled": true,
+            "redirectUris": [
+                "http://10.216.68.222/*",
+                "http://10.216.68.222/auth/callback"
+            ],
+            "webOrigins": ["http://10.216.68.222"],
+            "baseUrl": "http://10.216.68.222",
+            "adminUrl": "http://10.216.68.222",
+            "bearerOnly": false,
+            "consentRequired": false,
+            "fullScopeAllowed": true
+        }' \
+        http://localhost:8080/admin/realms/blog-realm/clients | \
+        jq -r '.id')
+    
+    echo "✅ Client created"
+else
+    echo "ℹ️  Client already exists, updating configuration..."
+    
+    # Update existing client configuration
+    curl -s -X PUT \
+        -H "Authorization: Bearer $ADMIN_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "clientId": "blog-client",
+            "enabled": true,
+            "publicClient": false,
+            "standardFlowEnabled": true,
+            "directAccessGrantsEnabled": true,
+            "serviceAccountsEnabled": true,
+            "redirectUris": [
+                "http://10.216.68.222/*",
+                "http://10.216.68.222/auth/callback"
+            ],
+            "webOrigins": ["http://10.216.68.222"],
+            "baseUrl": "http://10.216.68.222",
+            "adminUrl": "http://10.216.68.222",
+            "bearerOnly": false,
+            "consentRequired": false,
+            "fullScopeAllowed": true
+        }' \
+        http://localhost:8080/admin/realms/blog-realm/clients/$CLIENT_ID
+    
+    echo "✅ Client updated"
+fi
 
 echo "🔑 Client ID: $CLIENT_ID"
 
-# Create client secret
-echo "🔐 Creating client secret..."
-CLIENT_SECRET=$(curl -s -X POST \
+# Set the client secret to the provided value
+echo "🔐 Setting client secret..."
+curl -s -X PUT \
     -H "Authorization: Bearer $ADMIN_TOKEN" \
-    http://localhost:8080/admin/realms/blog-realm/clients/$CLIENT_ID/client-secret | \
-    jq -r '.value')
+    -H "Content-Type: application/json" \
+    -d "{\"type\": \"secret\", \"value\": \"BUzzw9pHNqFnPqPSwcIn1C9SzpZR5e90\"}" \
+    http://localhost:8080/admin/realms/blog-realm/clients/$CLIENT_ID/client-secret
+
+# Get the client secret (should match what we just set)
+CLIENT_SECRET="BUzzw9pHNqFnPqPSwcIn1C9SzpZR5e90"
+
+# Set the client authentication to client secret
+curl -s -X PUT \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"clientAuthenticatorType": "client-secret"}' \
+    http://localhost:8080/admin/realms/blog-realm/clients/$CLIENT_ID/client-secret/client-authenticator
 
 echo "✅ Client secret created"
 

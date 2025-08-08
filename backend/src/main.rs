@@ -1,30 +1,44 @@
+#![allow(warnings)]
+
 use axum::{
     routing::{get, post, put, delete},
     http::StatusCode,
     Json, Router, extract::{Path, Query},
-    response::Html,
-    http::Method,
+    response::{Html, Response},
+    http::{Method, header},
     middleware,
-    response::Response,
-    http::Uri,
 };
+use axum::http::HeaderName;
+use crate::auth::oauth::OAuthConfig;
 use serde_json::json;
 use std::net::SocketAddr;
-use tower_http::cors::{CorsLayer, Any};
+use std::sync::Arc;
+use tower_http::cors::{CorsLayer};
 use tower_http::trace::TraceLayer;
 use std::env;
-
+use crate::auth::oauth::{login_handler, callback_handler};
 mod auth;
 mod routes;
 mod markdown;
 mod utils;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
     println!("🚀 Starting blog backend server with Axum and Keycloak auth...");
+
+    // Configure OAuth with Nginx proxy in mind
+    let oauth_config = OAuthConfig::new(
+        "blog-client".to_string(),
+        "BUzzw9pHNqFnPqPSwcIn1C9SzpZR5e90".to_string(),
+        "http://10.216.68.222/auth/callback".to_string(),  // This will be handled by Nginx
+        "http://10.216.68.222:8080/realms/blog-realm/protocol/openid-connect/auth".to_string(),
+        "http://10.216.68.222:8080/realms/blog-realm/protocol/openid-connect/token".to_string(),
+        "http://10.216.68.222:8080/realms/blog-realm/protocol/openid-connect/userinfo".to_string(),
+    )?;
+    let oauth_config = Arc::new(oauth_config);
 
     // Get port from environment or use default
     let port = env::var("BLOG_SERVICE_PORT")
@@ -34,38 +48,69 @@ async fn main() {
 
     // Create CORS layer
     let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::PUT])
-        .allow_headers(Any)
-        .allow_origin(Any);
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::ACCEPT,
+            HeaderName::from_static("origin"),
+            HeaderName::from_static("access-control-allow-origin"),
+            HeaderName::from_static("access-control-request-method"),
+            HeaderName::from_static("access-control-request-headers"),
+        ])
+        .allow_origin([
+            "http://10.216.68.222:80".parse().unwrap(),
+            "http://10.216.68.222:8080".parse().unwrap(),
+        ])
+        .allow_credentials(true);
 
     // Build our application with routes
     let app = Router::new()
+        // Auth routes
+        .route("/auth/login", get(login_handler))
+        .route("/auth/callback", get(callback_handler))
+
+        // API routes
         .route("/health", get(health_check))
-        .route("/test-token", get(get_test_token))
         .route("/posts", get(list_posts))
         .route("/posts/:slug", get(get_post))
         .route("/preview", post(preview_markdown))
-        .route("/", get(serve_index))
+        
+        // Admin routes
         .route("/admin/new", get(serve_new_post))
         .route("/admin/edit/:slug", get(serve_edit_post))
+        
+        // Frontend routes
+        .route("/", get(serve_index))
         .route("/static/:file", get(serve_static))
-        .route("/auth/callback", get(handle_oauth_callback))
         .route("/posts/html", get(serve_posts_html))
-        .nest("/admin", Router::new()
-            .route("/new", post(create_post))
-            .route("/edit/:slug", put(edit_post))
-            .route("/delete/:slug", delete(delete_post))
-            .layer(middleware::from_fn(auth::auth_middleware))
+        .nest(
+            "/admin",
+            Router::new()
+                .route("/new", post(create_post))
+                .route("/edit/:slug", put(edit_post))
+                .route("/delete/:slug", delete(delete_post))
+                .layer(middleware::from_fn(auth::auth_middleware))
         )
+        .layer(cors)
         .layer(TraceLayer::new_for_http())
-        .layer(cors);
+        .with_state(oauth_config);
 
-    // Run it
+    // Start server
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    println!("🌐 Listening on {}", addr);
-
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    println!("📡 Server running on http://{}:{}", "0.0.0.0", port);
+    axum::serve(
+        tokio::net::TcpListener::bind(addr).await?,
+        app.into_make_service()
+    ).await?;
+        
+    Ok(())
 }
 
 async fn health_check() -> Json<serde_json::Value> {
@@ -73,14 +118,6 @@ async fn health_check() -> Json<serde_json::Value> {
         "status": "ok",
         "message": "Blog backend is running with Axum and Keycloak auth",
         "port": env::var("BLOG_SERVICE_PORT").unwrap_or_else(|_| "8000".to_string())
-    }))
-}
-
-async fn get_test_token() -> Json<serde_json::Value> {
-    let token = crate::auth::jwt::test_token::generate_test_token();
-    Json(json!({
-        "token": token,
-        "message": "Use this token for testing protected endpoints"
     }))
 }
 
@@ -355,8 +392,8 @@ async fn serve_static(Path(file): Path<String>) -> Result<Response, StatusCode> 
 async fn handle_oauth_callback(
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Response, StatusCode> {
-    let code = params.get("code").ok_or(StatusCode::BAD_REQUEST)?;
-    let state = params.get("state").ok_or(StatusCode::BAD_REQUEST)?;
+    let _ = params.get("code").ok_or(StatusCode::BAD_REQUEST)?;
+    let _ = params.get("state").ok_or(StatusCode::BAD_REQUEST)?;
     
     // For now, we'll use a test token since we don't have the full OAuth flow implemented
     // In a real implementation, you would exchange the code for a token with Keycloak

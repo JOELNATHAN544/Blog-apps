@@ -1,85 +1,100 @@
-use anyhow::{Result, Context};
-use serde::Deserialize;
-use crate::auth::Claims;
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use anyhow::{Result, Context, anyhow};
+use jsonwebtoken::{decode, decode_header, encode, Algorithm, EncodingKey, Header, Validation, DecodingKey};
+use serde::{Deserialize, Serialize};
 
-pub mod test_token;
-
-#[derive(Debug, Deserialize)]
-pub struct JwtHeader {
-    pub alg: String,
-    pub typ: String,
-    pub kid: Option<String>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Claims {
+    pub sub: String,
+    pub roles: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct JwtPayload {
-    pub iss: String,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenClaims {
     pub sub: String,
-    pub aud: String,  // Changed from Vec<String> to String
-    pub exp: u64,
-    pub iat: u64,
-    pub jti: Option<String>,
-    pub typ: Option<String>,
-    pub azp: Option<String>,
-    pub sid: Option<String>,
-    pub acr: Option<String>,
-    #[serde(rename = "allowed-origins")]
-    pub allowed_origins: Option<Vec<String>>,
+    pub exp: usize,
+    pub iat: usize,
+    pub iss: String,
+    pub aud: String,
     #[serde(rename = "realm_access")]
     pub realm_access: Option<RealmAccess>,
     #[serde(rename = "resource_access")]
     pub resource_access: Option<ResourceAccess>,
-    pub scope: Option<String>,
-    #[serde(rename = "email_verified")]
-    pub email_verified: Option<bool>,
-    pub name: Option<String>,
-    #[serde(rename = "preferred_username")]
-    pub preferred_username: Option<String>,
-    #[serde(rename = "given_name")]
-    pub given_name: Option<String>,
-    #[serde(rename = "family_name")]
-    pub family_name: Option<String>,
-    pub email: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RealmAccess {
     pub roles: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceAccess {
-    pub account: Option<ClientAccess>,
-    #[serde(rename = "blog-admin")]
-    pub blog_admin: Option<ClientAccess>,
+    #[serde(rename = "blog-client")]
+    pub blog_client: Option<ClientAccess>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientAccess {
     pub roles: Vec<String>,
 }
 
-#[derive(Debug)]
+pub mod test_token;
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Jwks {
+    keys: Vec<Jwk>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct Jwk {
+    kty: String,
+    use_: Option<String>,
+    kid: String,
+    alg: String,
+    n: String,
+    e: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct JwtHeader {
+    pub typ: String,
+    pub alg: String,
+    pub kid: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct KeycloakConfig {
     pub realm: String,
     pub client_id: String,
     pub issuer_url: String,
-    pub public_key: String,
+    pub jwks_uri: String,
 }
 
 impl Default for KeycloakConfig {
     fn default() -> Self {
+        let issuer_url = "http://10.216.68.222:8080/realms/blog-realm".to_string();
+        let jwks_uri = format!("{}/protocol/openid-connect/certs", issuer_url);
+        
         Self {
             realm: "blog-realm".to_string(),
-            client_id: "blog-backend".to_string(),
-            issuer_url: "http://localhost:8080/realms/blog-realm".to_string(),
-            public_key: "".to_string(), // Will be fetched from Keycloak
+            client_id: "blog-client".to_string(),
+            issuer_url,
+            jwks_uri,
         }
     }
 }
 
 /// Validate JWT token from Keycloak
+/// Create a new JWT token with the given claims
+pub fn create_jwt(claims: &Claims) -> Result<String> {
+    let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "your-256-bit-secret".to_string());
+    let encoding_key = EncodingKey::from_secret(secret.as_bytes());
+    
+    let token = encode(&Header::default(), &claims, &encoding_key)
+        .context("Failed to create JWT token")?;
+    
+    Ok(token)
+}
+
 pub async fn validate_token(token: &str) -> Result<Claims> {
     // Remove "Bearer " prefix if present
     let token = token.trim_start_matches("Bearer ").trim();
@@ -92,61 +107,61 @@ pub async fn validate_token(token: &str) -> Result<Claims> {
         });
     }
     
-    // If test token fails, try Keycloak validation
-    let _config = KeycloakConfig::default();
+    // Get Keycloak configuration
+    let config = KeycloakConfig::default();
     
-    // For now, let's use a simpler approach - just decode without signature verification
-    // This is for testing purposes only
-    match decode_keycloak_token_without_verification(token) {
-        Ok(claims) => {
-            Ok(claims)
-        }
-        Err(e) => {
-            Err(e)
-        }
+    // Decode and validate the token
+    match decode_and_validate_token(token, &config).await {
+        Ok(claims) => Ok(claims),
+        Err(e) => Err(e)
     }
 }
 
-/// Decode Keycloak JWT token without signature verification (for testing)
-fn decode_keycloak_token_without_verification(token: &str) -> Result<Claims> {
-    // Split the token to get the payload part
-    let parts: Vec<&str> = token.split('.').collect();
-    if parts.len() != 3 {
-        return Err(anyhow::anyhow!("Invalid JWT format"));
-    }
-    
-    // Decode the payload (second part)
-    let payload_b64 = parts[1];
-    
-    let payload_bytes = match URL_SAFE_NO_PAD.decode(payload_b64) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            return Err(anyhow::anyhow!("Failed to decode JWT payload: {:?}", e));
-        }
-    };
-    
-    let payload: JwtPayload = match serde_json::from_slice(&payload_bytes) {
-        Ok(payload) => payload,
-        Err(e) => {
-            return Err(anyhow::anyhow!("Failed to parse JWT payload: {:?}", e));
-        }
-    };
-    
-    // Extract roles from realm_access or resource_access
-    let roles = if let Some(realm_access) = payload.realm_access {
-        realm_access.roles
-    } else if let Some(resource_access) = payload.resource_access {
-        if let Some(blog_admin) = resource_access.blog_admin {
-            blog_admin.roles
-        } else {
-            vec![]
-        }
-    } else {
-        vec![]
-    };
-    
+/// Decode and validate Keycloak JWT token
+async fn decode_and_validate_token(token: &str, config: &KeycloakConfig) -> Result<Claims> {
+    // Get the JWKS from Keycloak
+    let client = reqwest::Client::new();
+    let jwks: Jwks = client
+        .get(&config.jwks_uri)
+        .send()
+        .await
+        .context("Failed to fetch JWKS from Keycloak")?
+        .json()
+        .await
+        .context("Failed to parse JWKS response")?;
+
+    // Get the header to find the key ID (kid)
+    let header = decode_header(token).context("Failed to decode token header")?;
+    let kid = header.kid.ok_or_else(|| anyhow!("No 'kid' in token header"))?;
+
+    // Find the matching key
+    let jwk = jwks.keys
+        .iter()
+        .find(|k| k.kid == kid)
+        .ok_or_else(|| anyhow!("No matching key found in JWKS for kid: {}", kid))?;
+
+    // Create the decoding key
+    let decoding_key = DecodingKey::from_rsa_components(&jwk.n, &jwk.e)
+        .context("Failed to create decoding key")?;
+
+    // Configure validation
+    let mut validation = Validation::new(Algorithm::RS256);
+    validation.set_issuer(&[&config.issuer_url]);
+    validation.set_audience(&[&config.client_id]);
+    validation.validate_exp = true;
+    validation.validate_nbf = true;
+
+    // Decode and validate the token
+    let token_data = decode::<TokenClaims>(token, &decoding_key, &validation)
+        .context("Failed to decode token")?;
+
+    // Extract roles from the token
+    let roles = token_data.claims.realm_access
+        .map(|ra| ra.roles)
+        .unwrap_or_default();
+
     Ok(Claims {
-        sub: payload.sub,
+        sub: token_data.claims.sub,
         roles,
     })
 }

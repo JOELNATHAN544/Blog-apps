@@ -1,3 +1,4 @@
+#![allow(warnings)]
 use axum::{
     extract::Request,
     http::{HeaderMap, StatusCode},
@@ -8,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use anyhow::Result;
 use serde_json::json;
 
+pub mod oauth;
 pub mod jwt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

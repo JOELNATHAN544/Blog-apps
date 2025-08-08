@@ -31,8 +31,6 @@ services:
       KC_HOSTNAME: ${KEYCLOAK_HOSTNAME}
     ports:
       - "${KEYCLOAK_PORT}:8080"
-    # volumes:
-    #   - ${KEYCLOAK_THEME_PATH}:/opt/keycloak/themes/${KEYCLOAK_THEME_NAME}
     depends_on:
       - keycloak-db
     networks:
