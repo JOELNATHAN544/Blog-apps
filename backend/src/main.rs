@@ -399,7 +399,7 @@ async fn handle_oauth_callback(
     // In a real implementation, you would exchange the code for a token with Keycloak
     let test_token = crate::auth::jwt::test_token::generate_test_token();
     
-    // Create a simple HTML page that sets the token and redirects
+    // Create a simple HTML page that sets the tokens and redirects
     let html = format!(
         r#"
 <!DOCTYPE html>
@@ -409,8 +409,9 @@ async fn handle_oauth_callback(
 </head>
 <body>
     <script>
-        // Store the token
+        // Store the tokens
         localStorage.setItem('auth_token', '{}');
+        localStorage.setItem('id_token', '{}');
         localStorage.setItem('user_info', JSON.stringify({{
             sub: 'keycloak-user',
             roles: ['author']
@@ -423,7 +424,8 @@ async fn handle_oauth_callback(
 </body>
 </html>
         "#,
-        test_token
+        test_token,
+        test_token  // Using the same token for simplicity, in a real app this would be the ID token from Keycloak
     );
     
     let response = Response::builder()
@@ -462,11 +464,10 @@ async fn serve_posts_html() -> Html<String> {
     </div>
     <div class="post-actions">
         <a href="/posts/{}" class="btn btn-primary">Read More</a>
-        <button onclick="editPost('{}')" class="btn btn-secondary">Edit</button>
     </div>
 </article>
                                 "#,
-                                post.slug, post.title, post.author, date, post.slug, post.slug
+                                post.slug, post.title, post.author, date, post.slug
                             ));
                         }
                     }

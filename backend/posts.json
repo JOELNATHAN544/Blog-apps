@@ -46,37 +46,5 @@
     "created_at": "2025-08-07T16:16:16.924177732Z",
     "updated_at": "2025-08-07T16:16:16.924184245Z",
     "content": "# Curl Test Post\n\nThis post was created using curl!\n\n## Features\n\n- Created via API\n- Markdown support\n- Pretty cool!"
-  },
-  {
-    "slug": "test-post",
-    "title": "Test Post",
-    "author": "admin",
-    "created_at": "2025-08-07T17:34:14.629824493Z",
-    "updated_at": "2025-08-07T17:34:14.629838796Z",
-    "content": "# Test\n\nThis should fail without token."
-  },
-  {
-    "slug": "test-post",
-    "title": "Test Post",
-    "author": "admin",
-    "created_at": "2025-08-07T17:34:14.685883888Z",
-    "updated_at": "2025-08-07T17:34:14.685889900Z",
-    "content": "# Test\n\nThis should fail with invalid token."
-  },
-  {
-    "slug": "test-post-with-test-token",
-    "title": "Test Post with Test Token",
-    "author": "admin",
-    "created_at": "2025-08-07T21:06:52.002214610Z",
-    "updated_at": "2025-08-07T21:06:52.002218352Z",
-    "content": "# Test Post with Test Token\n\nThis post was created using a test token!"
-  },
-  {
-    "slug": "test-token-post",
-    "title": "Test Token Post",
-    "author": "admin",
-    "created_at": "2025-08-07T21:22:51.973901426Z",
-    "updated_at": "2025-08-07T21:22:51.973904680Z",
-    "content": "# Test Token Post\n\nThis works!"
   }
 ]

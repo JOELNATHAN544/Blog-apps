@@ -110,67 +110,133 @@
     <script>
         // Global variables
         let currentUser = null;
-        let authToken = null;
-
-        // Initialize the app
+        let authToken = localStorage.getItem('auth_token');
+        
+        // Check for token in URL fragment on page load
         document.addEventListener('DOMContentLoaded', function() {
+            checkForTokenInUrl();
             checkAuthStatus();
         });
+        
+        // Function to check for token in URL fragment
+        function checkForTokenInUrl() {
+            const hash = window.location.hash.substring(1);
+            if (!hash) return;
+            
+            const params = new URLSearchParams(hash);
+            const token = params.get('token');
+            const accessToken = params.get('access_token');
+            
+            if (token) {
+                // Store the token
+                localStorage.setItem('auth_token', token);
+                authToken = token;
+                
+                // Update UI
+                updateAuthUI();
+                
+                // Clear the URL fragment
+                window.history.replaceState({}, document.title, window.location.pathname);
+                
+                // Show success message
+                alert('Successfully logged in!');
+            }
+        }
 
         // Authentication functions
         function login() {
-            // Redirect to our backend's login endpoint which will handle the OAuth flow
-            window.location.href = '/auth/login';
+            // Generate a random state parameter for CSRF protection
+            const state = Math.random().toString(36).substring(2, 15) + 
+                         Math.random().toString(36).substring(2, 15);
+            
+            // Store the state in session storage
+            sessionStorage.setItem('oauth_state', state);
+            
+            // Redirect to the login endpoint
+            window.location.href = `/auth/login?state=${state}`;
         }
-
+        
         function logout() {
-            // Clear local storage
+            // Clear authentication data first
+            clearAuth();
+            
+            // Construct the logout URL with proper parameters
+            const keycloakLogoutUrl = 'http://10.216.68.222:8080/realms/blog-realm/protocol/openid-connect/logout';
+            const clientId = 'blog-client';
+            const redirectUri = encodeURIComponent('http://10.216.68.222/');
+            
+            // Redirect to Keycloak logout with all required parameters
+            window.location.href = `${keycloakLogoutUrl}?client_id=${clientId}&post_logout_redirect_uri=${redirectUri}&id_token_hint=${encodeURIComponent(localStorage.getItem('id_token') || '')}`;
+        }
+        
+        // Check authentication status
+        function checkAuthStatus() {
+            const token = localStorage.getItem('auth_token');
+            if (token) {
+                // Check if token is expired
+                try {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    const isExpired = payload.exp * 1000 < Date.now();
+                    
+                    if (isExpired) {
+                        // Token is expired, clear it
+                        clearAuth();
+                        return;
+                    }
+                    
+                    // Token is valid, update UI
+                    currentUser = {
+                        id: payload.sub,
+                        roles: payload.roles || []
+                    };
+                    updateAuthUI();
+                } catch (e) {
+                    console.error('Error parsing token:', e);
+                    clearAuth();
+                }
+            }
+        }
+        
+        // Update authentication UI
+        function updateAuthUI() {
+            const loginBtn = document.getElementById('login-btn');
+            const logoutBtn = document.getElementById('logout-btn');
+            const adminSection = document.getElementById('admin-section');
+            
+            if (authToken) {
+                loginBtn.style.display = 'none';
+                logoutBtn.style.display = 'inline-block';
+                
+                // Show admin section if user has author role
+                if (currentUser && currentUser.roles && currentUser.roles.includes('author')) {
+                    adminSection.style.display = 'block';
+                } else {
+                    adminSection.style.display = 'none';
+                }
+                
+                // Add auth token to all HTMX requests
+                document.body.addEventListener('htmx:configRequest', function(event) {
+                    event.detail.headers['Authorization'] = `Bearer ${authToken}`;
+                });
+            } else {
+                loginBtn.style.display = 'inline-block';
+                logoutBtn.style.display = 'none';
+                adminSection.style.display = 'none';
+            }
+        }
+        
+        // Clear authentication
+        function clearAuth() {
             localStorage.removeItem('auth_token');
             localStorage.removeItem('user_info');
-            
-            // Update UI
             currentUser = null;
             authToken = null;
             updateAuthUI();
-            
-            // Redirect to Keycloak logout through nginx
-            const keycloakUrl = '/auth/realms/blog-realm/protocol/openid-connect/logout';
-            const clientId = 'blog-client';
-            const redirectUri = encodeURIComponent(window.location.origin);
-            
-            const logoutUrl = `${keycloakUrl}?client_id=${clientId}&redirect_uri=${redirectUri}`;
-            window.location.href = logoutUrl;
-        }
-
-        // Check authentication status
-        async function checkAuthStatus() {
-            const token = localStorage.getItem('auth_token');
-            const userInfo = localStorage.getItem('user_info');
-            
-            if (token && userInfo) {
-                try {
-                    currentUser = JSON.parse(userInfo);
-                    authToken = token;
-                    updateAuthUI();
-                } catch (error) {
-                    console.error('Error parsing user info:', error);
-                    clearAuth();
-                }
-            } else {
-                // Check for authorization code in URL
-                const urlParams = new URLSearchParams(window.location.search);
-                const code = urlParams.get('code');
-                const state = urlParams.get('state');
-                
-                if (code && state) {
-                    await handleAuthCallback(code, state);
-                }
-            }
         }
 
         // Handle authentication callback
         async function handleAuthCallback(code, state) {
-            const storedState = localStorage.getItem('auth_state');
+            const storedState = sessionStorage.getItem('oauth_state');
             
             if (state !== storedState) {
                 console.error('State mismatch');
@@ -178,28 +244,33 @@
             }
             
             try {
-                // Exchange code for token (this would typically be done server-side)
-                // For now, we'll use a test token
-                const response = await fetch('/test-token');
-                const data = await response.json();
+                // Exchange the authorization code for a token
+                const response = await fetch(`/auth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`);
                 
-                if (data.token) {
-                    authToken = data.token;
-                    currentUser = {
-                        sub: 'keycloak-user',
-                        roles: ['author']
-                    };
+                if (response.ok) {
+                    const data = await response.json();
                     
-                    localStorage.setItem('auth_token', authToken);
-                    localStorage.setItem('user_info', JSON.stringify(currentUser));
-                    
-                    updateAuthUI();
-                    
-                    // Clean up URL
-                    window.history.replaceState({}, document.title, window.location.pathname);
+                    if (data.token) {
+                        authToken = data.token;
+                        currentUser = data.user || { roles: [] };
+                        
+                        localStorage.setItem('auth_token', authToken);
+                        localStorage.setItem('user_info', JSON.stringify(currentUser));
+                        
+                        updateAuthUI();
+                        
+                        // Clear the state from session storage
+                        sessionStorage.removeItem('oauth_state');
+                        
+                        // Redirect to home page
+                        window.location.href = '/';
+                    }
+                } else {
+                    throw new Error('Failed to exchange code for token');
                 }
             } catch (error) {
-                console.error('Error handling auth callback:', error);
+                console.error('Error during authentication:', error);
+                clearAuth();
             }
         }
 

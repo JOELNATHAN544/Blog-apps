@@ -141,7 +141,8 @@ pub async fn callback_handler(
     State(oauth_config): State<Arc<OAuthConfig>>,
     Query(query): Query<AuthRequest>,
 ) -> Result<impl IntoResponse, String> {
-    let (_, user_info) = oauth_config
+    // Exchange the authorization code for tokens
+    let (access_token, user_info) = oauth_config
         .exchange_code(query.code)
         .await
         .map_err(|e| format!("Failed to exchange code: {}", e))?;
@@ -163,29 +164,13 @@ pub async fn callback_handler(
 
     let token = create_jwt(&claims).map_err(|e| e.to_string())?;
 
-    // Create a simple HTML page that stores the token and redirects
-    let html = format!(
-        r#"
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Authenticating...</title>
-            <script>
-                // Store the token in local storage
-                localStorage.setItem('auth_token', '{}');
-                localStorage.setItem('user_info', JSON.stringify({}));
-                // Redirect to home page
-                window.location.href = '/';
-            </script>
-        </head>
-        <body>
-            <p>Authentication successful! Redirecting...</p>
-        </body>
-        </html>
-        "#,
+    // Create a redirect response with the token as a URL fragment
+    let redirect_url = format!(
+        "/#token={}&access_token={}",
         token,
-        serde_json::to_string(&user_info).map_err(|e| e.to_string())?
+        access_token
     );
 
-    Ok(html.into_response())
+    // Redirect to the frontend with the token
+    Ok(axum::response::Redirect::to(&redirect_url).into_response())
 }
