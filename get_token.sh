@@ -8,7 +8,7 @@ REALM="blog-realm"
 CLIENT_ID="blog-backend"
 USERNAME="admin"
 PASSWORD="admin123"
-
+KEYCLOAK
 echo ""
 echo "1. Checking if Keycloak is running..."
 if curl -s "$KEYCLOAK_URL/realms/master" > /dev/null 2>&1; then
