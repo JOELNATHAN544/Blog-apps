@@ -1,0 +1,61 @@
+# Multi-stage build for Rust backend with Alpine
+FROM rust:1.80-alpine as builder
+
+# Install build dependencies
+RUN apk add --no-cache musl-dev
+
+# Set working directory
+WORKDIR /usr/src/app
+
+# Copy only Cargo.toml first
+COPY backend/Cargo.toml ./
+
+# Create a dummy main.rs to build dependencies
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+
+# Build dependencies (this will generate a new Cargo.lock)
+RUN cargo build --release
+
+# Remove dummy main.rs and copy real source
+RUN rm src/main.rs
+COPY backend/src ./src
+COPY backend/posts ./posts
+COPY backend/posts.json ./
+
+# Build the application
+RUN cargo build --release
+
+# Runtime stage with Alpine
+FROM alpine:latest
+
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates libgcc
+
+# Create app user
+RUN addgroup -g 1001 -S app && adduser -u 1001 -S app -G app
+
+# Set working directory
+WORKDIR /app
+
+# Copy binary from builder stage
+COPY --from=builder /usr/src/app/target/release/backend .
+
+# Copy posts directory
+COPY --from=builder /usr/src/app/posts ./posts
+COPY --from=builder /usr/src/app/posts.json .
+
+# Change ownership to app user
+RUN chown -R app:app /app
+
+# Switch to app user
+USER app
+
+# Set default environment variables
+ENV BLOG_SERVICE_PORT=8000
+ENV RUST_LOG=info
+
+# Expose port
+EXPOSE 8000
+
+# Run the binary
+CMD ["./backend"]

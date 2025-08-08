@@ -1,0 +1,112 @@
+# Rust
+*.rs.bk
+*.pdb
+
+# Cargo
+Cargo.lock
+target/
+**/*.rs.bk
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Docker
+.dockerignore
+
+# Node.js (if frontend uses Node.js)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+
+# Python (if any Python scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Build artifacts
+build/
+dist/
+*.tar.gz
+*.zip
+
+# Keycloak data (if using persistent volumes)
+keycloak_data/
+
+# PostgreSQL data
+postgres_data/
+
+# Backup files
+*.bak
+*.backup
+
+# Coverage reports
+coverage/
+*.lcov
+
+# Test artifacts
+test-results/
+coverage/
+
+# Documentation build
+docs/_build/
+
+# Local development
+.local/
+
+# Application specific - ignore generated posts but keep sample posts
+# posts.json (keep for now as it contains sample data)
+# posts/*.md (keep sample posts, ignore user-generated ones)

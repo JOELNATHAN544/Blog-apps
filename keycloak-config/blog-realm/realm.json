@@ -1,0 +1,10 @@
+{
+    "realm": "blog-realm",
+    "enabled": true,
+    "registrationAllowed": true,
+    "loginWithEmailAllowed": true,
+    "duplicateEmailsAllowed": false,
+    "resetPasswordAllowed": true,
+    "editUsernameAllowed": false,
+    "defaultLocale": "en"
+  }
