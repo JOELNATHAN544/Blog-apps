@@ -153,7 +153,7 @@
             localStorage.removeItem('auth_token');
             localStorage.removeItem('user_info');
             
-            const keycloakUrl = 'http://localhost:8080/auth/realms/blog-realm/protocol/openid-connect/logout';
+            const keycloakUrl = '/auth/realms/blog-realm/protocol/openid-connect/logout';
             const clientId = 'blog-client';
             const redirectUri = encodeURIComponent(window.location.origin);
             

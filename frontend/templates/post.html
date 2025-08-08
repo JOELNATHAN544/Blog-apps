@@ -78,13 +78,12 @@
 
         // Authentication functions
         function login() {
-            // Redirect to Keycloak login
-            const keycloakUrl = 'http://localhost:8080/auth/realms/blog-realm/protocol/openid-connect/auth';
+            // Redirect to Keycloak login through nginx
+            const keycloakUrl = '/auth/realms/blog-realm/protocol/openid-connect/auth';
             const clientId = 'blog-client';
             const redirectUri = encodeURIComponent(window.location.origin + '/auth/callback');
             const state = Math.random().toString(36).substring(7);
             
-            // Store state for verification
             localStorage.setItem('auth_state', state);
             
             const loginUrl = `${keycloakUrl}?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&state=${state}`;
@@ -99,8 +98,8 @@
             authToken = null;
             updateAuthUI();
             
-            // Redirect to Keycloak logout
-            const keycloakUrl = 'http://localhost:8080/auth/realms/blog-realm/protocol/openid-connect/logout';
+            // Redirect to Keycloak logout through nginx
+            const keycloakUrl = '/auth/realms/blog-realm/protocol/openid-connect/logout';
             const clientId = 'blog-client';
             const redirectUri = encodeURIComponent(window.location.origin);
             
@@ -149,7 +148,7 @@
                 if (data.token) {
                     authToken = data.token;
                     currentUser = {
-                        sub: 'test-user',
+                        sub: 'keycloak-user',
                         roles: ['author']
                     };
                     
@@ -198,7 +197,6 @@
 
         // Edit current post
         function editCurrentPost() {
-            // Redirect to edit page or show edit modal
             window.location.href = `/admin/edit/${currentSlug}`;
         }
 

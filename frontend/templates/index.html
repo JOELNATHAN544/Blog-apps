@@ -34,8 +34,8 @@
             <!-- Blog Posts Section -->
             <section class="posts-section">
                 <h2>Latest Posts</h2>
-                <div id="posts-container" class="posts-grid">
-                    <!-- Posts will be loaded here -->
+                <div id="posts-container" class="posts-grid" hx-get="/posts/html" hx-trigger="load">
+                    <!-- Posts will be loaded here via HTMX -->
                 </div>
             </section>
 
@@ -114,79 +114,13 @@
 
         // Initialize the app
         document.addEventListener('DOMContentLoaded', function() {
-            loadPosts();
             checkAuthStatus();
         });
 
-        // Load blog posts
-        async function loadPosts() {
-            try {
-                const response = await fetch('/posts');
-                const data = await response.json();
-                
-                if (data.success) {
-                    displayPosts(data.posts);
-                } else {
-                    console.error('Failed to load posts:', data.message);
-                }
-            } catch (error) {
-                console.error('Error loading posts:', error);
-            }
-        }
-
-        // Display posts in the grid
-        function displayPosts(posts) {
-            const container = document.getElementById('posts-container');
-            container.innerHTML = '';
-
-            if (posts.length === 0) {
-                container.innerHTML = '<p class="no-posts">No posts available yet.</p>';
-                return;
-            }
-
-            posts.forEach(post => {
-                const postElement = createPostElement(post);
-                container.appendChild(postElement);
-            });
-        }
-
-        // Create a post element
-        function createPostElement(post) {
-            const article = document.createElement('article');
-            article.className = 'post-card';
-            article.innerHTML = `
-                <div class="post-header">
-                    <h3 class="post-title">
-                        <a href="/posts/${post.slug}" class="post-link">${post.title}</a>
-                    </h3>
-                    <div class="post-meta">
-                        <span class="post-author">By ${post.author}</span>
-                        <span class="post-date">${formatDate(post.created_at)}</span>
-                    </div>
-                </div>
-                <div class="post-actions">
-                    <a href="/posts/${post.slug}" class="btn btn-primary">Read More</a>
-                    ${currentUser && currentUser.roles && currentUser.roles.includes('author') ? 
-                        `<button onclick="editPost('${post.slug}')" class="btn btn-secondary">Edit</button>` : ''}
-                </div>
-            `;
-            return article;
-        }
-
-        // Format date
-        function formatDate(dateString) {
-            const date = new Date(dateString);
-            return date.toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-            });
-        }
-
         // Authentication functions
         function login() {
-            // Redirect to Keycloak login
-            const keycloakUrl = 'http://localhost:8080/auth/realms/blog-realm/protocol/openid-connect/auth';
+            // Redirect to Keycloak login through nginx
+            const keycloakUrl = '/auth/realms/blog-realm/protocol/openid-connect/auth';
             const clientId = 'blog-client';
             const redirectUri = encodeURIComponent(window.location.origin + '/auth/callback');
             const state = Math.random().toString(36).substring(7);
@@ -208,8 +142,8 @@
             authToken = null;
             updateAuthUI();
             
-            // Redirect to Keycloak logout
-            const keycloakUrl = 'http://localhost:8080/auth/realms/blog-realm/protocol/openid-connect/logout';
+            // Redirect to Keycloak logout through nginx
+            const keycloakUrl = '/auth/realms/blog-realm/protocol/openid-connect/logout';
             const clientId = 'blog-client';
             const redirectUri = encodeURIComponent(window.location.origin);
             
@@ -261,7 +195,7 @@
                 if (data.token) {
                     authToken = data.token;
                     currentUser = {
-                        sub: 'test-user',
+                        sub: 'keycloak-user',
                         roles: ['author']
                     };
                     
@@ -368,7 +302,6 @@
                 const html = await response.text();
                 
                 // Extract title and content from the response
-                // This is a simplified approach - in a real app you'd have a JSON endpoint
                 const titleMatch = html.match(/<h1[^>]*>([^<]+)<\/h1>/);
                 const contentMatch = html.match(/<div class="post-content">([\s\S]*?)<\/div>/);
                 
@@ -394,6 +327,23 @@
                 event.target.style.display = 'none';
             }
         }
+
+        // HTMX event handlers
+        document.addEventListener('htmx:afterRequest', function(event) {
+            if (event.detail.xhr.status === 200) {
+                const response = JSON.parse(event.detail.xhr.responseText);
+                if (response.success) {
+                    // Refresh the posts list
+                    htmx.trigger('#posts-container', 'load');
+                    closeModal('new-post-modal');
+                    alert('Post created successfully!');
+                } else {
+                    alert('Error creating post: ' + response.message);
+                }
+            } else {
+                alert('Error creating post. Please try again.');
+            }
+        });
     </script>
 </body>
 </html>

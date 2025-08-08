@@ -50,6 +50,7 @@ async fn main() {
         .route("/admin/edit/:slug", get(serve_edit_post))
         .route("/static/:file", get(serve_static))
         .route("/auth/callback", get(handle_oauth_callback))
+        .route("/posts/html", get(serve_posts_html))
         .nest("/admin", Router::new()
             .route("/new", post(create_post))
             .route("/edit/:slug", put(edit_post))
@@ -394,4 +395,50 @@ async fn handle_oauth_callback(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     
     Ok(response)
+}
+
+// Serve posts as HTML for HTMX
+async fn serve_posts_html() -> Html<String> {
+    match std::fs::read_to_string("posts.json") {
+        Ok(content) => {
+            match serde_json::from_str::<Vec<crate::markdown::Post>>(&content) {
+                Ok(posts) => {
+                    let mut html = String::new();
+                    
+                    if posts.is_empty() {
+                        html.push_str("<p class='no-posts'>No posts available yet.</p>");
+                    } else {
+                        for post in posts {
+                            let date = post.created_at.format("%B %d, %Y").to_string();
+                            
+                            html.push_str(&format!(
+                                r#"
+<article class="post-card">
+    <div class="post-header">
+        <h3 class="post-title">
+            <a href="/posts/{}" class="post-link">{}</a>
+        </h3>
+        <div class="post-meta">
+            <span class="post-author">By {}</span>
+            <span class="post-date">{}</span>
+        </div>
+    </div>
+    <div class="post-actions">
+        <a href="/posts/{}" class="btn btn-primary">Read More</a>
+        <button onclick="editPost('{}')" class="btn btn-secondary">Edit</button>
+    </div>
+</article>
+                                "#,
+                                post.slug, post.title, post.author, date, post.slug, post.slug
+                            ));
+                        }
+                    }
+                    
+                    Html(html)
+                }
+                Err(_) => Html("<p class='no-posts'>Error loading posts.</p>".to_string())
+            }
+        }
+        Err(_) => Html("<p class='no-posts'>Error loading posts.</p>".to_string())
+    }
 }
