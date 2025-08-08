@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - Blog App</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <h1 class="logo">
+                <a href="/" style="text-decoration: none; color: white;">Blog App</a>
+            </h1>
+            <nav class="nav">
+                <a href="/" class="nav-link">Home</a>
+                <div id="auth-section">
+                    <button id="login-btn" class="btn btn-primary" onclick="login()">Login</button>
+                    <button id="logout-btn" class="btn btn-secondary" onclick="logout()" style="display: none;">Logout</button>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="container">
+            <!-- Admin Actions (only visible to authors) -->
+            <div id="admin-section" class="admin-section" style="display: none;">
+                <div class="admin-actions">
+                    <button class="btn btn-secondary" onclick="editCurrentPost()">Edit Post</button>
+                    <button class="btn btn-danger" onclick="deleteCurrentPost()">Delete Post</button>
+                    <a href="/" class="btn btn-primary">Back to Posts</a>
+                </div>
+            </div>
+
+            <!-- Post Content -->
+            <article class="post-content">
+                <header class="post-header">
+                    <h1>{{ title }}</h1>
+                    <div class="post-meta">
+                        <span class="post-author">By {{ author }}</span>
+                        <span class="post-date">{{ created_at }}</span>
+                        {% if updated_at != created_at %}
+                        <span class="post-updated">Updated: {{ updated_at }}</span>
+                        {% endif %}
+                    </div>
+                </header>
+                
+                <div class="post-body">
+                    {{ content | safe }}
+                </div>
+            </article>
+
+            <!-- Navigation -->
+            <div class="post-navigation">
+                <a href="/" class="btn btn-primary">← Back to All Posts</a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2024 Blog App. Built with Rust, Keycloak, and modern web technologies.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Global variables
+        let currentUser = null;
+        let authToken = null;
+        let currentSlug = window.location.pathname.split('/').pop();
+
+        // Initialize the app
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuthStatus();
+        });
+
+        // Authentication functions
+        function login() {
+            // Redirect to Keycloak login
+            const keycloakUrl = 'http://localhost:8080/auth/realms/blog-realm/protocol/openid-connect/auth';
+            const clientId = 'blog-client';
+            const redirectUri = encodeURIComponent(window.location.origin + '/auth/callback');
+            const state = Math.random().toString(36).substring(7);
+            
+            // Store state for verification
+            localStorage.setItem('auth_state', state);
+            
+            const loginUrl = `${keycloakUrl}?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&state=${state}`;
+            window.location.href = loginUrl;
+        }
+
+        function logout() {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user_info');
+            
+            currentUser = null;
+            authToken = null;
+            updateAuthUI();
+            
+            // Redirect to Keycloak logout
+            const keycloakUrl = 'http://localhost:8080/auth/realms/blog-realm/protocol/openid-connect/logout';
+            const clientId = 'blog-client';
+            const redirectUri = encodeURIComponent(window.location.origin);
+            
+            const logoutUrl = `${keycloakUrl}?client_id=${clientId}&redirect_uri=${redirectUri}`;
+            window.location.href = logoutUrl;
+        }
+
+        // Check authentication status
+        async function checkAuthStatus() {
+            const token = localStorage.getItem('auth_token');
+            const userInfo = localStorage.getItem('user_info');
+            
+            if (token && userInfo) {
+                try {
+                    currentUser = JSON.parse(userInfo);
+                    authToken = token;
+                    updateAuthUI();
+                } catch (error) {
+                    console.error('Error parsing user info:', error);
+                    clearAuth();
+                }
+            } else {
+                const urlParams = new URLSearchParams(window.location.search);
+                const code = urlParams.get('code');
+                const state = urlParams.get('state');
+                
+                if (code && state) {
+                    await handleAuthCallback(code, state);
+                }
+            }
+        }
+
+        // Handle authentication callback
+        async function handleAuthCallback(code, state) {
+            const storedState = localStorage.getItem('auth_state');
+            
+            if (state !== storedState) {
+                console.error('State mismatch');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/test-token');
+                const data = await response.json();
+                
+                if (data.token) {
+                    authToken = data.token;
+                    currentUser = {
+                        sub: 'test-user',
+                        roles: ['author']
+                    };
+                    
+                    localStorage.setItem('auth_token', authToken);
+                    localStorage.setItem('user_info', JSON.stringify(currentUser));
+                    
+                    updateAuthUI();
+                    
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                }
+            } catch (error) {
+                console.error('Error handling auth callback:', error);
+            }
+        }
+
+        // Update authentication UI
+        function updateAuthUI() {
+            const loginBtn = document.getElementById('login-btn');
+            const logoutBtn = document.getElementById('logout-btn');
+            const adminSection = document.getElementById('admin-section');
+            
+            if (currentUser) {
+                loginBtn.style.display = 'none';
+                logoutBtn.style.display = 'inline-block';
+                
+                if (currentUser.roles && currentUser.roles.includes('author')) {
+                    adminSection.style.display = 'block';
+                } else {
+                    adminSection.style.display = 'none';
+                }
+            } else {
+                loginBtn.style.display = 'inline-block';
+                logoutBtn.style.display = 'none';
+                adminSection.style.display = 'none';
+            }
+        }
+
+        // Clear authentication
+        function clearAuth() {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user_info');
+            currentUser = null;
+            authToken = null;
+            updateAuthUI();
+        }
+
+        // Edit current post
+        function editCurrentPost() {
+            // Redirect to edit page or show edit modal
+            window.location.href = `/admin/edit/${currentSlug}`;
+        }
+
+        // Delete current post
+        async function deleteCurrentPost() {
+            if (!confirm('Are you sure you want to delete this post? This action cannot be undone.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/admin/delete/${currentSlug}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Post deleted successfully!');
+                    window.location.href = '/';
+                } else {
+                    alert('Error deleting post: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error deleting post:', error);
+                alert('Error deleting post. Please try again.');
+            }
+        }
+    </script>
+</body>
+</html>
