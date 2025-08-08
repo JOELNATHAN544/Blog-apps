@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blog App</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/htmx.org/dist/ext/loading-states.js"></script>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <h1 class="logo">Blog App</h1>
+            <nav class="nav">
+                <a href="/" class="nav-link">Home</a>
+                <div id="auth-section">
+                    <button id="login-btn" class="btn btn-primary" onclick="login()">Login</button>
+                    <button id="logout-btn" class="btn btn-secondary" onclick="logout()" style="display: none;">Logout</button>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="container">
+            <!-- Admin Section (only visible to authors) -->
+            <div id="admin-section" class="admin-section" style="display: none;">
+                <div class="admin-actions">
+                    <button class="btn btn-success" onclick="showNewPostForm()">New Post</button>
+                </div>
+            </div>
+
+            <!-- Blog Posts Section -->
+            <section class="posts-section">
+                <h2>Latest Posts</h2>
+                <div id="posts-container" class="posts-grid" hx-get="/posts/html" hx-trigger="load">
+                    <!-- Posts will be loaded here via HTMX -->
+                </div>
+            </section>
+
+            <!-- New Post Modal -->
+            <div id="new-post-modal" class="modal" style="display: none;">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>Create New Post</h3>
+                        <button class="close-btn" onclick="closeModal('new-post-modal')">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="new-post-form" hx-post="/admin/new" hx-target="#posts-container" hx-swap="beforeend">
+                            <div class="form-group">
+                                <label for="title">Title</label>
+                                <input type="text" id="title" name="title" required class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label for="content">Content (Markdown)</label>
+                                <textarea id="content" name="content" rows="10" required class="form-control"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <button type="button" onclick="previewContent()" class="btn btn-secondary">Preview</button>
+                                <button type="submit" class="btn btn-success">Create Post</button>
+                            </div>
+                        </form>
+                        <div id="preview-container" class="preview-container" style="display: none;">
+                            <h4>Preview</h4>
+                            <div id="preview-content"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Edit Post Modal -->
+            <div id="edit-post-modal" class="modal" style="display: none;">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>Edit Post</h3>
+                        <button class="close-btn" onclick="closeModal('edit-post-modal')">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="edit-post-form">
+                            <div class="form-group">
+                                <label for="edit-title">Title</label>
+                                <input type="text" id="edit-title" name="title" required class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label for="edit-content">Content (Markdown)</label>
+                                <textarea id="edit-content" name="content" rows="10" required class="form-control"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <button type="button" onclick="previewEditContent()" class="btn btn-secondary">Preview</button>
+                                <button type="submit" class="btn btn-success">Update Post</button>
+                            </div>
+                        </form>
+                        <div id="edit-preview-container" class="preview-container" style="display: none;">
+                            <h4>Preview</h4>
+                            <div id="edit-preview-content"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2024 Blog App. Built with Rust, Keycloak, and modern web technologies.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Global variables
+        let currentUser = null;
+        let authToken = null;
+
+        // Initialize the app
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuthStatus();
+        });
+
+        // Authentication functions
+        function login() {
+            // Redirect to Keycloak login through nginx
+            const keycloakUrl = '/auth/realms/blog-realm/protocol/openid-connect/auth';
+            const clientId = 'blog-client';
+            const redirectUri = encodeURIComponent(window.location.origin + '/auth/callback');
+            const state = Math.random().toString(36).substring(7);
+            
+            // Store state for verification
+            localStorage.setItem('auth_state', state);
+            
+            const loginUrl = `${keycloakUrl}?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&state=${state}`;
+            window.location.href = loginUrl;
+        }
+
+        function logout() {
+            // Clear local storage
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user_info');
+            
+            // Update UI
+            currentUser = null;
+            authToken = null;
+            updateAuthUI();
+            
+            // Redirect to Keycloak logout through nginx
+            const keycloakUrl = '/auth/realms/blog-realm/protocol/openid-connect/logout';
+            const clientId = 'blog-client';
+            const redirectUri = encodeURIComponent(window.location.origin);
+            
+            const logoutUrl = `${keycloakUrl}?client_id=${clientId}&redirect_uri=${redirectUri}`;
+            window.location.href = logoutUrl;
+        }
+
+        // Check authentication status
+        async function checkAuthStatus() {
+            const token = localStorage.getItem('auth_token');
+            const userInfo = localStorage.getItem('user_info');
+            
+            if (token && userInfo) {
+                try {
+                    currentUser = JSON.parse(userInfo);
+                    authToken = token;
+                    updateAuthUI();
+                } catch (error) {
+                    console.error('Error parsing user info:', error);
+                    clearAuth();
+                }
+            } else {
+                // Check for authorization code in URL
+                const urlParams = new URLSearchParams(window.location.search);
+                const code = urlParams.get('code');
+                const state = urlParams.get('state');
+                
+                if (code && state) {
+                    await handleAuthCallback(code, state);
+                }
+            }
+        }
+
+        // Handle authentication callback
+        async function handleAuthCallback(code, state) {
+            const storedState = localStorage.getItem('auth_state');
+            
+            if (state !== storedState) {
+                console.error('State mismatch');
+                return;
+            }
+            
+            try {
+                // Exchange code for token (this would typically be done server-side)
+                // For now, we'll use a test token
+                const response = await fetch('/test-token');
+                const data = await response.json();
+                
+                if (data.token) {
+                    authToken = data.token;
+                    currentUser = {
+                        sub: 'keycloak-user',
+                        roles: ['author']
+                    };
+                    
+                    localStorage.setItem('auth_token', authToken);
+                    localStorage.setItem('user_info', JSON.stringify(currentUser));
+                    
+                    updateAuthUI();
+                    
+                    // Clean up URL
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                }
+            } catch (error) {
+                console.error('Error handling auth callback:', error);
+            }
+        }
+
+        // Update authentication UI
+        function updateAuthUI() {
+            const loginBtn = document.getElementById('login-btn');
+            const logoutBtn = document.getElementById('logout-btn');
+            const adminSection = document.getElementById('admin-section');
+            
+            if (currentUser) {
+                loginBtn.style.display = 'none';
+                logoutBtn.style.display = 'inline-block';
+                
+                if (currentUser.roles && currentUser.roles.includes('author')) {
+                    adminSection.style.display = 'block';
+                } else {
+                    adminSection.style.display = 'none';
+                }
+            } else {
+                loginBtn.style.display = 'inline-block';
+                logoutBtn.style.display = 'none';
+                adminSection.style.display = 'none';
+            }
+        }
+
+        // Clear authentication
+        function clearAuth() {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user_info');
+            currentUser = null;
+            authToken = null;
+            updateAuthUI();
+        }
+
+        // Modal functions
+        function showNewPostForm() {
+            document.getElementById('new-post-modal').style.display = 'block';
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        // Preview functions
+        async function previewContent() {
+            const content = document.getElementById('content').value;
+            if (!content.trim()) return;
+            
+            try {
+                const response = await fetch('/preview', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ content })
+                });
+                
+                const html = await response.text();
+                document.getElementById('preview-content').innerHTML = html;
+                document.getElementById('preview-container').style.display = 'block';
+            } catch (error) {
+                console.error('Error previewing content:', error);
+            }
+        }
+
+        async function previewEditContent() {
+            const content = document.getElementById('edit-content').value;
+            if (!content.trim()) return;
+            
+            try {
+                const response = await fetch('/preview', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ content })
+                });
+                
+                const html = await response.text();
+                document.getElementById('edit-preview-content').innerHTML = html;
+                document.getElementById('edit-preview-container').style.display = 'block';
+            } catch (error) {
+                console.error('Error previewing content:', error);
+            }
+        }
+
+        // Edit post function
+        async function editPost(slug) {
+            try {
+                const response = await fetch(`/posts/${slug}`);
+                const html = await response.text();
+                
+                // Extract title and content from the response
+                const titleMatch = html.match(/<h1[^>]*>([^<]+)<\/h1>/);
+                const contentMatch = html.match(/<div class="post-content">([\s\S]*?)<\/div>/);
+                
+                if (titleMatch && contentMatch) {
+                    document.getElementById('edit-title').value = titleMatch[1];
+                    document.getElementById('edit-content').value = contentMatch[1];
+                    
+                    // Set up the form action
+                    const form = document.getElementById('edit-post-form');
+                    form.setAttribute('hx-put', `/admin/edit/${slug}`);
+                    form.setAttribute('hx-target', '#posts-container');
+                    
+                    document.getElementById('edit-post-modal').style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error loading post for editing:', error);
+            }
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.style.display = 'none';
+            }
+        }
+
+        // HTMX event handlers
+        document.addEventListener('htmx:afterRequest', function(event) {
+            if (event.detail.xhr.status === 200) {
+                const response = JSON.parse(event.detail.xhr.responseText);
+                if (response.success) {
+                    // Refresh the posts list
+                    htmx.trigger('#posts-container', 'load');
+                    closeModal('new-post-modal');
+                    alert('Post created successfully!');
+                } else {
+                    alert('Error creating post: ' + response.message);
+                }
+            } else {
+                alert('Error creating post. Please try again.');
+            }
+        });
+    </script>
+</body>
+</html>

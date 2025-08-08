@@ -1,10 +1,12 @@
 use axum::{
     routing::{get, post, put, delete},
     http::StatusCode,
-    Json, Router, extract::Path,
+    Json, Router, extract::{Path, Query},
     response::Html,
     http::Method,
     middleware,
+    response::Response,
+    http::Uri,
 };
 use serde_json::json;
 use std::net::SocketAddr;
@@ -43,6 +45,12 @@ async fn main() {
         .route("/posts", get(list_posts))
         .route("/posts/:slug", get(get_post))
         .route("/preview", post(preview_markdown))
+        .route("/", get(serve_index))
+        .route("/admin/new", get(serve_new_post))
+        .route("/admin/edit/:slug", get(serve_edit_post))
+        .route("/static/:file", get(serve_static))
+        .route("/auth/callback", get(handle_oauth_callback))
+        .route("/posts/html", get(serve_posts_html))
         .nest("/admin", Router::new()
             .route("/new", post(create_post))
             .route("/edit/:slug", put(edit_post))
@@ -113,13 +121,50 @@ async fn list_posts() -> Json<serde_json::Value> {
 async fn get_post(Path(slug): Path<String>) -> Result<Html<String>, StatusCode> {
     println!("🔍 Attempting to get post with slug: {}", slug);
     
-    match crate::markdown::reader::read_and_render_markdown(&slug) {
-        Ok(html_content) => {
-            println!("✅ Successfully rendered post: {}", slug);
-            Ok(Html(html_content))
+    // Try to get post data first
+    match crate::markdown::reader::read_post(&slug) {
+        Ok(post) => {
+            // Read the post template
+            match std::fs::read_to_string("../frontend/templates/post.html") {
+                Ok(mut template) => {
+                    // Simple template replacement
+                    template = template.replace("{{ title }}", &post.title);
+                    template = template.replace("{{ author }}", &post.author);
+                    template = template.replace("{{ created_at }}", &post.created_at.format("%B %d, %Y").to_string());
+                    template = template.replace("{{ updated_at }}", &post.updated_at.format("%B %d, %Y").to_string());
+                    
+                    // Get the rendered content
+                    match crate::markdown::reader::read_and_render_markdown(&slug) {
+                        Ok(html_content) => {
+                            template = template.replace("{{ content | safe }}", &html_content);
+                            println!("✅ Successfully rendered post: {}", slug);
+                            Ok(Html(template))
+                        }
+                        Err(_) => {
+                            template = template.replace("{{ content | safe }}", "<p>Error loading content.</p>");
+                            Ok(Html(template))
+                        }
+                    }
+                }
+                Err(_) => {
+                    // Fallback to simple HTML if template not found
+                    match crate::markdown::reader::read_and_render_markdown(&slug) {
+                        Ok(html_content) => {
+                            let simple_html = format!(
+                                "<!DOCTYPE html><html><head><title>{}</title></head><body><h1>{}</h1><div>{}</div></body></html>",
+                                post.title, post.title, html_content
+                            );
+                            Ok(Html(simple_html))
+                        }
+                        Err(_) => {
+                            Ok(Html("<h1>Post not found</h1><p>The requested post could not be found.</p>".to_string()))
+                        }
+                    }
+                }
+            }
         }
-        Err(e) => {
-            println!("❌ Failed to render post {}: {:?}", slug, e);
+        Err(_) => {
+            println!("❌ Failed to find post: {}", slug);
             Ok(Html("<h1>Post not found</h1><p>The requested post could not be found.</p>".to_string()))
         }
     }
@@ -244,5 +289,156 @@ async fn delete_post(
             println!("❌ Failed to delete post: {:?}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
+    }
+}
+
+// Template serving functions
+async fn serve_index() -> Html<String> {
+    match std::fs::read_to_string("../frontend/templates/index.html") {
+        Ok(content) => Html(content),
+        Err(_) => Html("<h1>Error</h1><p>Could not load index template.</p>".to_string())
+    }
+}
+
+async fn serve_new_post() -> Html<String> {
+    match std::fs::read_to_string("../frontend/templates/admin/new.html") {
+        Ok(content) => Html(content),
+        Err(_) => Html("<h1>Error</h1><p>Could not load new post template.</p>".to_string())
+    }
+}
+
+async fn serve_edit_post(Path(slug): Path<String>) -> Html<String> {
+    // First try to get the existing post data
+    match crate::markdown::reader::read_post(&slug) {
+        Ok(post) => {
+            // Read the template
+            match std::fs::read_to_string("../frontend/templates/admin/edit.html") {
+                Ok(mut template) => {
+                    // Simple template replacement (in a real app, use a proper templating engine)
+                    template = template.replace("{{ slug }}", &slug);
+                    template = template.replace("{{ title }}", &post.title);
+                    template = template.replace("{{ content }}", &post.content);
+                    Html(template)
+                }
+                Err(_) => Html("<h1>Error</h1><p>Could not load edit template.</p>".to_string())
+            }
+        }
+        Err(_) => Html("<h1>Error</h1><p>Post not found.</p>".to_string())
+    }
+}
+
+async fn serve_static(Path(file): Path<String>) -> Result<Response, StatusCode> {
+    let file_path = format!("../frontend/static/{}", file);
+    
+    match std::fs::read(&file_path) {
+        Ok(content) => {
+            let content_type = if file.ends_with(".css") {
+                "text/css"
+            } else if file.ends_with(".js") {
+                "application/javascript"
+            } else {
+                "text/plain"
+            };
+            
+            let response = Response::builder()
+                .header("Content-Type", content_type)
+                .body(axum::body::Body::from(content))
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            
+            Ok(response)
+        }
+        Err(_) => Err(StatusCode::NOT_FOUND)
+    }
+}
+
+// OAuth callback handler
+async fn handle_oauth_callback(
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Response, StatusCode> {
+    let code = params.get("code").ok_or(StatusCode::BAD_REQUEST)?;
+    let state = params.get("state").ok_or(StatusCode::BAD_REQUEST)?;
+    
+    // For now, we'll use a test token since we don't have the full OAuth flow implemented
+    // In a real implementation, you would exchange the code for a token with Keycloak
+    let test_token = crate::auth::jwt::test_token::generate_test_token();
+    
+    // Create a simple HTML page that sets the token and redirects
+    let html = format!(
+        r#"
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Authentication Success</title>
+</head>
+<body>
+    <script>
+        // Store the token
+        localStorage.setItem('auth_token', '{}');
+        localStorage.setItem('user_info', JSON.stringify({{
+            sub: 'keycloak-user',
+            roles: ['author']
+        }}));
+        
+        // Redirect back to the main page
+        window.location.href = '/';
+    </script>
+    <p>Authentication successful! Redirecting...</p>
+</body>
+</html>
+        "#,
+        test_token
+    );
+    
+    let response = Response::builder()
+        .header("Content-Type", "text/html")
+        .body(axum::body::Body::from(html))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    Ok(response)
+}
+
+// Serve posts as HTML for HTMX
+async fn serve_posts_html() -> Html<String> {
+    match std::fs::read_to_string("posts.json") {
+        Ok(content) => {
+            match serde_json::from_str::<Vec<crate::markdown::Post>>(&content) {
+                Ok(posts) => {
+                    let mut html = String::new();
+                    
+                    if posts.is_empty() {
+                        html.push_str("<p class='no-posts'>No posts available yet.</p>");
+                    } else {
+                        for post in posts {
+                            let date = post.created_at.format("%B %d, %Y").to_string();
+                            
+                            html.push_str(&format!(
+                                r#"
+<article class="post-card">
+    <div class="post-header">
+        <h3 class="post-title">
+            <a href="/posts/{}" class="post-link">{}</a>
+        </h3>
+        <div class="post-meta">
+            <span class="post-author">By {}</span>
+            <span class="post-date">{}</span>
+        </div>
+    </div>
+    <div class="post-actions">
+        <a href="/posts/{}" class="btn btn-primary">Read More</a>
+        <button onclick="editPost('{}')" class="btn btn-secondary">Edit</button>
+    </div>
+</article>
+                                "#,
+                                post.slug, post.title, post.author, date, post.slug, post.slug
+                            ));
+                        }
+                    }
+                    
+                    Html(html)
+                }
+                Err(_) => Html("<p class='no-posts'>Error loading posts.</p>".to_string())
+            }
+        }
+        Err(_) => Html("<p class='no-posts'>Error loading posts.</p>".to_string())
     }
 }

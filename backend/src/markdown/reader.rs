@@ -26,4 +26,17 @@ pub fn read_and_render_markdown(slug: &str) -> Result<String> {
     Ok(html_content)
 }
 
+/// Read post data from posts.json
+pub fn read_post(slug: &str) -> Result<crate::markdown::Post> {
+    let posts_content = fs::read_to_string("posts.json")
+        .context("Failed to read posts.json")?;
+    
+    let posts: Vec<crate::markdown::Post> = serde_json::from_str(&posts_content)
+        .context("Failed to parse posts.json")?;
+    
+    posts.into_iter()
+        .find(|post| post.slug == slug)
+        .ok_or_else(|| anyhow::anyhow!("Post not found: {}", slug))
+}
+
 
