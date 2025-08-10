@@ -106,7 +106,7 @@ docs/_build/
 
 # Local development
 .local/
-
+.qodo/
 # Application specific - ignore generated posts but keep sample posts
 # posts.json (keep for now as it contains sample data)
 # posts/*.md (keep sample posts, ignore user-generated ones)
