@@ -1,191 +1,47 @@
-# Blog App
+# Project Architecture and Component Overview
 
-A modern blog application built with Rust, Keycloak authentication, and a responsive frontend.
+## Key Project Components
 
-## Features
+### Keycloak
+**Keycloak** is an open-source Identity and Access Management (IAM) solution. In our project, it functions as the central **Identity Provider**. Its primary role is to handle user authentication (login, registration) and authorization. The application delegates all identity-related tasks to Keycloak, freeing the blog service from having to manage user accounts, roles, or passwords itself. It is configured as the OAuth 2.0 and OpenID Connect (OIDC) server that issues JSON Web Tokens (JWTs) to authenticated users.
 
-- **Backend**: Rust + Axum framework
-- **Authentication**: Keycloak integration
-- **Frontend**: Modern HTML/CSS/JavaScript with HTMX
-- **Storage**: Markdown files with JSON index
-- **Admin Interface**: Create, edit, and delete posts (author role required)
+### Nginx
+**Nginx** serves as a **reverse proxy** and web server in our setup. It is the public-facing entry point for all incoming web traffic. Its main functions are:
+* **Request Routing:** It intelligently forwards requests to the correct internal service (either Keycloak for authentication or the blog service for content).
+* **Security:** It hides the internal network topology from the public internet..
 
-## Architecture
+### Reverse Proxy
+A **reverse proxy** is a server that sits in front of one or more web servers, forwarding client requests to them. In this project, Nginx acts as the reverse proxy. This architecture is a standard practice for modern web applications as it enhances security, provides a single point of entry, and simplifies service management.
 
-```
-Blog-app/
-├── backend/          # Rust backend server
-├── frontend/         # HTML templates and static assets
-├── keycloak-config/  # Keycloak configuration
-├── nginx/           # Reverse proxy configuration
-└── docker-compose.yml
-```
+### HTMX
+**HTMX** is a front-end library used to enhance HTML. Instead of relying on a complex JavaScript framework, HTMX allows the backend to send back HTML snippets, which are then seamlessly inserted into the page. The assignment mentions HTMX is used for creating a simple user interface for actions like "New Post" and "Edit," allowing for a dynamic user experience with minimal client-side JavaScript.
 
-## Quick Start
+### Blog-Service (Rust)
+The **blog-service**, written in Rust, contains the core business logic of the application. It manages blog posts (CRUD operations) and defines which endpoints are public and which are protected. The service does not store user credentials. Instead, it relies on Keycloak for authentication. When a protected endpoint is accessed, the `blog-service` validates the JWT provided by the user in the request header to ensure they have the necessary `author` role.
 
-### Prerequisites
+---
 
-- Docker and Docker Compose
-- Rust (for local development)
+## Project Flow Diagram
 
-### Using Docker Compose
+1. A user attempts to access a protected resource in the blog application.
 
-1. **Set up environment variables:**
-   ```bash
-   cp env.example .env
-   # Edit .env with your preferred settings
-   ```
+2. The request is intercepted by the Nginx reverse proxy and forwarded to the blog-service.
 
-2. **Start the services:**
-   ```bash
-   docker-compose up -d
-   ```
+3. he blog-service recognizes the endpoint as protected and checks for a valid authentication token.
 
-3. **Access the application:**
-   - Blog: http://localhost
-   - Keycloak Admin: http://localhost:8080
+4. Finding no token, the blog-service sends a response that triggers a redirect to Keycloak's login page.
 
-### Local Development
+5. The user authenticates with their credentials on the Keycloak login page.
 
-1. **Start the backend:**
-   ```bash
-   cd backend
-   cargo run
-   ```
+6. Keycloak, upon successful login, redirects the user's browser back to the application with an authorization code.
 
-2. **Access the application:**
-   - Blog: http://localhost:8000
+7. Nginx do a request to Keycloak's token endpoint to exchange the code for an access token.
 
-## Frontend Features
+8. Nginx then forwards the original request to the blog-service, now including the newly acquired access token in the request header.
 
-### Main Page (`/`)
-- Displays all blog posts in a responsive grid
-- Login/logout functionality
-- Admin controls for authors
-- Markdown preview functionality
+9. The blog-service receives the request and validates the access token (a JWT).
 
-### Individual Post Pages (`/posts/:slug`)
-- Full post display with markdown rendering
-- Admin controls (edit/delete) for authors
-- Responsive design
+10. The service grants access, processes the request, and returns the requested content (e.g., an HTML page for creating a new post).
 
-### Admin Interface
+11. Nginx sends the final response back to the user's browser.
 
-#### New Post (`/admin/new`)
-- Create new blog posts
-- Markdown editor with live preview
-- Authentication required (author role)
-
-#### Edit Post (`/admin/edit/:slug`)
-- Edit existing posts
-- Pre-populated with current content
-- Authentication required (author role)
-
-## API Endpoints
-
-### Public Endpoints
-- `GET /` - Main page
-- `GET /posts` - List all posts (JSON)
-- `GET /posts/:slug` - Get specific post (HTML)
-- `GET /preview` - Preview markdown content
-- `GET /static/:file` - Serve static files (CSS, JS)
-
-### Protected Endpoints (Author role required)
-- `POST /admin/new` - Create new post
-- `PUT /admin/edit/:slug` - Update existing post
-- `DELETE /admin/delete/:slug` - Delete post
-
-### Authentication
-- `GET /test-token` - Get test JWT token for development
-- Login via Keycloak at `/auth/`
-
-## Frontend Technologies
-
-- **HTML5**: Semantic markup
-- **CSS3**: Modern styling with gradients, animations, and responsive design
-- **JavaScript**: Vanilla JS for authentication and interactions
-- **HTMX**: Dynamic content loading without page refreshes
-- **Markdown**: Content authoring with live preview
-
-## Key Features
-
-### Responsive Design
-- Mobile-first approach
-- Grid layout for posts
-- Flexible navigation
-- Touch-friendly buttons
-
-### Authentication Integration
-- Keycloak OAuth2/OIDC integration
-- Role-based access control
-- Secure token handling
-- Automatic redirect handling
-
-### Admin Interface
-- Modal-based forms
-- Live markdown preview
-- Form validation
-- Success/error feedback
-
-### Modern UI/UX
-- Clean, modern design
-- Smooth animations
-- Loading states
-- Error handling
-- Accessibility considerations
-
-## Development
-
-### Frontend Structure
-```
-frontend/
-├── templates/
-│   ├── index.html      # Main page
-│   ├── post.html       # Individual post page
-│   ├── preview.html    # Markdown preview
-│   └── admin/
-│       ├── new.html    # New post form
-│       └── edit.html   # Edit post form
-└── static/
-    └── styles.css      # Main stylesheet
-```
-
-### Adding New Features
-
-1. **New Pages**: Add HTML templates to `frontend/templates/`
-2. **Styling**: Update `frontend/static/styles.css`
-3. **Backend Routes**: Add routes in `backend/src/main.rs`
-4. **Static Files**: Place in `frontend/static/`
-
-### Testing
-
-Test the application by:
-1. Visiting http://localhost:8000
-2. Clicking "Login" to authenticate
-3. Creating new posts as an author
-4. Editing existing posts
-5. Testing responsive design on mobile
-
-## Security
-
-- JWT token validation
-- Role-based access control
-- CORS configuration
-- Secure headers
-- Input validation
-
-## Deployment
-
-The application is containerized and ready for deployment with Docker Compose. The nginx reverse proxy handles routing between the frontend and Keycloak authentication.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## License
-
-This project is open source and available under the MIT License.

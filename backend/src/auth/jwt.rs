@@ -1,6 +1,7 @@
 use anyhow::{Result, Context, anyhow};
 use jsonwebtoken::{decode, decode_header, encode, Algorithm, EncodingKey, Header, Validation, DecodingKey};
 use serde::{Deserialize, Serialize};
+use crate::auth::test_token;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
@@ -37,7 +38,6 @@ pub struct ClientAccess {
     pub roles: Vec<String>,
 }
 
-pub mod test_token;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Jwks {

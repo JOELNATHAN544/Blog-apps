@@ -21,6 +21,7 @@ pub struct OAuthConfig {
     pub auth_url: String,
     pub token_url: String,
     pub userinfo_url: String,
+    pub logout_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,6 +66,7 @@ impl OAuthConfig {
         auth_url: String,
         token_url: String,
         userinfo_url: String,
+        logout_url: String,
     ) -> Result<Self> {
         let client = BasicClient::new(
             ClientId::new(client_id.clone()),
@@ -81,9 +83,13 @@ impl OAuthConfig {
             client_id,
             client_secret,
             redirect_uri,
-            auth_url,
-            token_url,
-            userinfo_url,
+            auth_url: auth_url.clone(),
+            token_url: token_url.clone(),
+            userinfo_url: userinfo_url.clone(),
+            logout_url: format!(
+                "{}/protocol/openid-connect/logout",
+                auth_url.trim_end_matches("/protocol/openid-connect/auth")
+            ),
         })
     }
 
@@ -134,6 +140,33 @@ pub async fn login_handler(
 ) -> impl IntoResponse {
     let (auth_url, _) = oauth_config.authorize();
     Redirect::to(&auth_url).into_response()
+}
+
+// Handler for initiating logout
+pub async fn logout_handler(
+    State(oauth_config): State<Arc<OAuthConfig>>,
+) -> impl IntoResponse {
+    let logout_url = format!(
+        "{}?post_logout_redirect_uri={}",
+        oauth_config.logout_url,
+        urlencoding::encode("http://10.216.68.222/")
+    );
+    
+    // Clear any session cookies
+    let cookie = axum::http::HeaderValue::from_str(
+        "token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax"
+    ).unwrap();
+    
+    let mut response = axum::response::Redirect::temporary(
+        &logout_url
+    ).into_response();
+    
+    response.headers_mut().insert(
+        axum::http::header::SET_COOKIE,
+        cookie
+    );
+    
+    response
 }
 
 // Handler for OAuth callback

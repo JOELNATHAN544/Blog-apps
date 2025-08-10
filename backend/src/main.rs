@@ -16,7 +16,8 @@ use std::sync::Arc;
 use tower_http::cors::{CorsLayer};
 use tower_http::trace::TraceLayer;
 use std::env;
-use crate::auth::oauth::{login_handler, callback_handler};
+use crate::auth::{test_token::generate_test_token, oauth::{login_handler, callback_handler, logout_handler}};
+
 mod auth;
 mod routes;
 mod markdown;
@@ -37,6 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "http://10.216.68.222:8080/realms/blog-realm/protocol/openid-connect/auth".to_string(),
         "http://10.216.68.222:8080/realms/blog-realm/protocol/openid-connect/token".to_string(),
         "http://10.216.68.222:8080/realms/blog-realm/protocol/openid-connect/userinfo".to_string(),
+        "http://10.216.68.222:8080/realms/blog-realm/protocol/openid-connect/logout".to_string(),
     )?;
     let oauth_config = Arc::new(oauth_config);
 
@@ -75,6 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Auth routes
         .route("/auth/login", get(login_handler))
         .route("/auth/callback", get(callback_handler))
+        .route("/auth/logout", get(logout_handler))
 
         // API routes
         .route("/health", get(health_check))
@@ -117,7 +120,7 @@ async fn health_check() -> Json<serde_json::Value> {
     Json(json!({
         "status": "ok",
         "message": "Blog backend is running with Axum and Keycloak auth",
-        "port": env::var("BLOG_SERVICE_PORT").unwrap_or_else(|_| "8000".to_string())
+        "port": "8000"
     }))
 }
 
@@ -397,7 +400,7 @@ async fn handle_oauth_callback(
     
     // For now, we'll use a test token since we don't have the full OAuth flow implemented
     // In a real implementation, you would exchange the code for a token with Keycloak
-    let test_token = crate::auth::jwt::test_token::generate_test_token();
+    let test_token = generate_test_token();
     
     // Create a simple HTML page that sets the tokens and redirects
     let html = format!(

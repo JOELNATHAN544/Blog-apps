@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::Path;
 use anyhow::{Result, Context};
-// Removed unused import
 use crate::markdown::Post;
 
 const POSTS_DIR: &str = "posts";

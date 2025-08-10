@@ -11,6 +11,7 @@ use serde_json::json;
 
 pub mod oauth;
 pub mod jwt;
+pub mod test_token;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
