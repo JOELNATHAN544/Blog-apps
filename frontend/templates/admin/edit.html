@@ -67,6 +67,14 @@
     </footer>
 
     <script>
+        // Ensure Authorization header is attached to all HTMX requests
+        document.body.addEventListener('htmx:configRequest', function(event) {
+            const token = localStorage.getItem('auth_token');
+            if (token) {
+                event.detail.headers['Authorization'] = `Bearer ${token}`;
+            }
+        });
+
         // Global variables
         let authToken = null;
         let currentSlug = window.location.pathname.split('/').pop();

@@ -188,8 +188,10 @@ pub async fn callback_handler(
         .unwrap_or_default();
     
     // Automatically assign "author" role to all authenticated users
+    // This ensures that all Keycloak users have the author role for our blog
     if !roles.contains(&"author".to_string()) {
         roles.push("author".to_string());
+        println!("Assigned 'author' role to user: {}", user_info.sub);
     }
 
     // Clone the sub field to avoid moving user_info

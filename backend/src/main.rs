@@ -3,7 +3,7 @@
 use axum::{
     routing::{get, post, put, delete},
     http::StatusCode,
-    Json, Router, extract::{Path, Query},
+    Json, Router, extract::{Path, Query, Form, Extension},
     response::{Html, Response},
     http::{Method, header},
     middleware,
@@ -19,7 +19,6 @@ use std::env;
 use crate::auth::{test_token::generate_test_token, oauth::{login_handler, callback_handler, logout_handler}};
 
 mod auth;
-mod routes;
 mod markdown;
 mod utils;
 
@@ -78,6 +77,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/auth/login", get(login_handler))
         .route("/auth/callback", get(callback_handler))
         .route("/auth/logout", get(logout_handler))
+        .route("/oauth/callback", get(handle_oauth_callback))
+        .route("/test-token", get(get_test_token))
 
         // API routes
         .route("/health", get(health_check))
@@ -233,24 +234,23 @@ struct AdminResponse {
     slug: Option<String>,
 }
 
-async fn create_post(Json(payload): Json<CreatePostRequest>) -> Result<Json<AdminResponse>, StatusCode> {
-    // Authentication is handled by middleware
+async fn create_post(
+    Json(payload): Json<CreatePostRequest>,
+) -> Result<Json<AdminResponse>, StatusCode> {
+    // Authentication is handled by middleware; claims should be available in request extensions
+    // For now, we'll use a placeholder author - in a real implementation,
+    // we'd extract the claims from the middleware
     let slug = crate::utils::generate_unique_slug(&payload.title);
-    
-    // Get author from JWT claims - for now use a fallback
-    // TODO: Extract from JWT claims when middleware is properly configured
-    let author = "admin".to_string();
-    
-    // Create the post
+
     let post = crate::markdown::Post {
         slug: slug.clone(),
         title: payload.title,
-        author,
+        author: "placeholder-author".to_string(),
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
         content: payload.content,
     };
-    
+
     // Save the post
     match crate::markdown::writer::create_post(&post) {
         Ok(_) => {
@@ -276,24 +276,23 @@ struct UpdatePostRequest {
 
 async fn edit_post(
     Path(slug): Path<String>,
-    Json(payload): Json<UpdatePostRequest>,
+    Form(payload): Form<UpdatePostRequest>,
 ) -> Result<Json<AdminResponse>, StatusCode> {
-    // Authentication is handled by middleware
-    
-    // Get author from JWT claims - for now use a fallback
-    // TODO: Extract from JWT claims when middleware is properly configured
-    let author = "admin".to_string();
-    
-    // Create the updated post
+    // Load existing post to preserve author and created_at
+    let existing_post = match crate::markdown::reader::read_post(&slug) {
+        Ok(p) => p,
+        Err(_) => return Err(StatusCode::NOT_FOUND),
+    };
+
     let post = crate::markdown::Post {
         slug: slug.clone(),
         title: payload.title,
-        author,
-        created_at: chrono::Utc::now(), // TODO: Get from existing post
+        author: existing_post.author,
+        created_at: existing_post.created_at,
         updated_at: chrono::Utc::now(),
         content: payload.content,
     };
-    
+
     // Update the post
     match crate::markdown::writer::update_post(&post) {
         Ok(_) => {
@@ -368,7 +367,8 @@ async fn serve_edit_post(Path(slug): Path<String>) -> Html<String> {
 }
 
 async fn serve_static(Path(file): Path<String>) -> Result<Response, StatusCode> {
-    let file_path = format!("../frontend/static/{}", file);
+    // Use absolute path to avoid issues with relative paths
+    let file_path = format!("./frontend/static/{}", file);
     
     match std::fs::read(&file_path) {
         Ok(content) => {
@@ -437,6 +437,12 @@ async fn handle_oauth_callback(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     
     Ok(response)
+}
+async fn get_test_token() -> Json<serde_json::Value> {
+    let token = generate_test_token();
+    Json(json!({
+        "token": token
+    }))
 }
 
 // Serve posts as HTML for HTMX

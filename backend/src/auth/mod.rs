@@ -25,6 +25,8 @@ pub async fn auth_middleware(
     request: Request,
     next: Next,
 ) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
+    println!("Auth middleware called");
+    
     // Extract Authorization header
     let auth_header = headers
         .get("authorization")
@@ -37,6 +39,8 @@ pub async fn auth_middleware(
             }))
         ))?;
 
+    println!("Auth header found: {}", auth_header);
+
     // Extract and validate token
     let token = jwt::extract_token_from_header(auth_header)
         .map_err(|_| (
@@ -46,6 +50,8 @@ pub async fn auth_middleware(
                 "message": "Please provide a valid Bearer token"
             }))
         ))?;
+
+    println!("Token extracted successfully");
 
     let claims = jwt::validate_token(token)
         .await
@@ -57,8 +63,11 @@ pub async fn auth_middleware(
             }))
         ))?;
 
+    println!("Token validated successfully. Roles: {:?}", claims.roles);
+
     // Check if user has author role
     if !claims.roles.contains(&"author".to_string()) {
+        println!("User does not have author role");
         return Err((
             StatusCode::FORBIDDEN,
             Json(json!({
@@ -67,6 +76,8 @@ pub async fn auth_middleware(
             }))
         ));
     }
+
+    println!("User has author role, proceeding with request");
 
     // Add claims to request extensions for use in handlers
     let mut request = request;
@@ -77,7 +88,13 @@ pub async fn auth_middleware(
 
 /// Extract claims from request extensions
 pub fn extract_claims(request: &Request) -> Option<&Claims> {
-    request.extensions().get::<Claims>()
+    let claims = request.extensions().get::<Claims>();
+    if claims.is_some() {
+        println!("Claims found in request extensions");
+    } else {
+        println!("No claims found in request extensions");
+    }
+    claims
 }
 
 /// Check if user has specific role
