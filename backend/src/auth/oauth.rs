@@ -181,11 +181,16 @@ pub async fn callback_handler(
         .map_err(|e| format!("Failed to exchange code: {}", e))?;
 
     // Create JWT with user info
-    let roles = user_info
+    let mut roles = user_info
         .realm_access
         .as_ref()
         .map(|ra| ra.roles.clone())
         .unwrap_or_default();
+    
+    // Automatically assign "author" role to all authenticated users
+    if !roles.contains(&"author".to_string()) {
+        roles.push("author".to_string());
+    }
 
     // Clone the sub field to avoid moving user_info
     let sub = user_info.sub.clone();
