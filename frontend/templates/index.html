@@ -163,7 +163,7 @@
             // Construct the logout URL with proper parameters
             const keycloakLogoutUrl = 'http://10.216.68.222:8080/realms/blog-realm/protocol/openid-connect/logout';
             const clientId = 'blog-client';
-            const redirectUri = encodeURIComponent('http://10.216.68.222/');
+            const redirectUri = encodeURIComponent('http://10.216.68.222:80');
             
             // Redirect to Keycloak logout with all required parameters
             window.location.href = `${keycloakLogoutUrl}?client_id=${clientId}&post_logout_redirect_uri=${redirectUri}&id_token_hint=${encodeURIComponent(localStorage.getItem('id_token') || '')}`;
